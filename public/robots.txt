@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Allow: /login
+Disallow: /app
+Disallow: /plan
+Disallow: /setup
+Disallow: /settings
+
+Sitemap: https://planora.app/sitemap.xml
+

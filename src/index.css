@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root, html[data-theme="dark"] {
+  --bg: #0A0A16;
+  --bg-glow: radial-gradient(900px 500px at 50% -10%, rgba(124, 92, 255, 0.28), transparent 70%);
+  --surface: #12121F;
+  --surface-2: #1A1A2E;
+  --glass: rgba(255, 255, 255, 0.04);
+  --border: #262640;
+  --border-hi: #3A3A5C;
+  --ink: #F2F2F7;
+  --muted: #A0A0B8;
+  --muted-dim: #6E6E8A;
+
+  --primary: #7C5CFF;
+  --primary-hi: #9377FF;
+  --primary-soft: rgba(124, 92, 255, 0.16);
+  --blue: #4EA8FF;
+  --mint: #2DD4A7;
+  --mint-soft: rgba(45, 212, 167, 0.14);
+  --amber: #FFB86B;
+  --rose: #FF6B81;
+
+  --color-sub-1: #7C5CFF;
+  --color-sub-2: #2DD4A7;
+  --color-sub-3: #4EA8FF;
+  --color-sub-4: #FFB86B;
+  --color-sub-5: #FF6B81;
+  --color-sub-6: #F472B6;
+
+  --radius-input: 10px;
+  --radius-card: 18px;
+  --radius-hero: 24px;
+  --radius-pill: 9999px;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background-color: var(--bg);
+  }
+
+  body {
+    background-color: var(--bg);
+    background-image: var(--bg-glow);
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: var(--ink);
+  }
+
+  /* Prevent iOS zoom by enforcing 16px min on form inputs */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  /* Visible focus ring (2px --primary-hi, 2px offset) */
+  :focus-visible {
+    outline: 2px solid var(--primary-hi);
+    outline-offset: 2px;
+  }
+}
+
+/* Gradients */
+.bg-cta-gradient {
+  background: linear-gradient(135deg, #7C5CFF 0%, #4EA8FF 100%);
+  color: #FFFFFF;
+  box-shadow: 0 8px 24px rgba(124, 92, 255, 0.32);
+}
+
+.bg-hero-glow {
+  background: radial-gradient(circle at 50% 30%, rgba(124, 92, 255, 0.22) 0%, transparent 60%);
+}
+
+.hero-grid-pattern {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+/* Custom interactive active states */
+.pressable {
+  transition: transform 150ms ease-out, background-color 150ms ease-out, opacity 150ms ease-out;
+}
+.pressable:active {
+  transform: scale(0.98);
+}
+
+/* Hide scrollbar utility for horizontal scroll-snap on week view */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Landing hero reshuffle animation (pure CSS) */
+@keyframes reshuffle-block-1 {
+  0%, 15% { transform: translateY(0); }
+  25%, 65% { transform: translateY(68px); }
+  75%, 100% { transform: translateY(0); }
+}
+
+@keyframes reshuffle-block-2 {
+  0%, 15% { transform: translateY(0); }
+  25%, 65% { transform: translateY(-68px); }
+  75%, 100% { transform: translateY(0); }
+}
+
+.animate-reshuffle-1 {
+  animation: reshuffle-block-1 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-reshuffle-2 {
+  animation: reshuffle-block-2 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-reshuffle-1,
+  .animate-reshuffle-2 {
+    animation: none !important;
+    transform: none !important;
+  }
+}
