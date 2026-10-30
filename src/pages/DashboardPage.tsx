@@ -8,6 +8,7 @@ import { SubjectBadge } from '../components/SubjectBadge';
 import { ProgressRing } from '../components/ProgressRing';
 import { RecoveryModal } from '../components/RecoveryModal';
 import { WeekTimetable } from '../components/WeekTimetable';
+import { PomodoroTimer } from '../components/PomodoroTimer';
 import { Seo } from '../components/Seo';
 import type { Subject, Chapter, Block } from '../types/database';
 
@@ -333,6 +334,19 @@ export const DashboardPage: React.FC = () => {
         />
       </section>
 
+      {/* POMODORO FOCUS TIMER */}
+      <section aria-labelledby="pomodoro-heading" className="pt-2">
+        <PomodoroTimer
+          todayBlocks={todayBlocks}
+          subjects={subjects}
+          chapters={chapters}
+          onMarkBlockDone={async (block: Block) => {
+            await handleToggleBlockStatus(block, 'done');
+          }}
+          defaultSessionMin={profile?.session_min || 25}
+        />
+      </section>
+
       {/* TODAY'S BLOCKS: 3 · MARK REALITY, NOT THE PLAN */}
       <section aria-labelledby="today-heading" className="space-y-4 pt-2">
         <div className="flex items-center justify-between">
@@ -376,6 +390,21 @@ export const DashboardPage: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                    {/* Tick box checkbox for task completion */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleBlockStatus(block, isDone ? 'scheduled' : 'done')}
+                      aria-label={isDone ? `Uncheck "${chapter?.title}"` : `Check "${chapter?.title}" as done`}
+                      className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center flex-shrink-0 transition-all cursor-pointer ${
+                        isDone
+                          ? 'bg-mint border-mint text-white shadow-sm'
+                          : 'border-border bg-surface-2 hover:border-primary text-transparent'
+                      }`}
+                      title={isDone ? 'Click to uncheck (Mark as Not Yet)' : 'Click to check as Done'}
+                    >
+                      <Check className={`w-4 h-4 stroke-[3] ${isDone ? 'opacity-100 text-white' : 'opacity-0'}`} />
+                    </button>
+
                     <div className="flex flex-col items-center justify-center bg-surface-2 border border-border rounded-input px-3 py-2 text-center flex-shrink-0 min-w-[76px]">
                       <span className="text-xs font-bold text-ink leading-none">
                         {formatMinutesToTime(block.start_min)}

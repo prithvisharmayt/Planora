@@ -184,6 +184,82 @@ export const LandingPage: React.FC = () => {
           </div>
         </section>
 
+        {/* 3 Featured Cards (Matching User's Reference Picture with Light Blue replacing pink) */}
+        <section aria-label="Key Outcomes" className="pb-16 -mt-4">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Card 1: Peach / Warm Sand */}
+              <div className="p-6 rounded-[22px] bg-[#FFF7ED] border border-[#FED7AA] shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="font-heading font-extrabold text-2xl text-[#9A3412]">+83%</span>
+                    <span className="w-8 h-8 rounded-full bg-[#EA580C] text-white flex items-center justify-center text-xs">
+                      ↗
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#C2410C]">Completion Rate</p>
+                  <h3 className="font-heading font-bold text-lg text-[#7C2D12] mt-1">
+                    Exam Readiness Without Burnout
+                  </h3>
+                  <p className="text-xs text-[#9A3412]/80 mt-2 leading-relaxed">
+                    Deterministic scheduling spreads syllabus marathon chapters so you retain concepts for exam day.
+                  </p>
+                </div>
+                <div className="pt-6 mt-4 border-t border-[#FED7AA]/60 flex items-center justify-between text-xs font-semibold text-[#9A3412]">
+                  <span>Find out more</span>
+                  <span>↗</span>
+                </div>
+              </div>
+
+              {/* Card 2: Soft Mint */}
+              <div className="p-6 rounded-[22px] bg-[#ECFDF5] border border-[#A7F3D0] shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="font-heading font-extrabold text-2xl text-[#065F46]">96%</span>
+                    <span className="w-8 h-8 rounded-full bg-[#059669] text-white flex items-center justify-center text-xs">
+                      ↗
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#047857]">Plan Adherence</p>
+                  <h3 className="font-heading font-bold text-lg text-[#064E3B] mt-1">
+                    Daily Study Momentum
+                  </h3>
+                  <p className="text-xs text-[#065F46]/80 mt-2 leading-relaxed">
+                    Strict rest breaks between sessions protect focus and eliminate the afternoon study slump.
+                  </p>
+                </div>
+                <div className="pt-6 mt-4 border-t border-[#A7F3D0]/60 flex items-center justify-between text-xs font-semibold text-[#065F46]">
+                  <span>Explore plans</span>
+                  <span>↗</span>
+                </div>
+              </div>
+
+              {/* Card 3: Light Blue (Replacing Pink) */}
+              <div className="p-6 rounded-[22px] bg-[#F0F9FF] border border-[#BAE6FD] shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="font-heading font-extrabold text-2xl text-[#0369A1]">25m</span>
+                    <span className="w-8 h-8 rounded-full bg-[#0284C7] text-white flex items-center justify-center text-xs">
+                      ↗
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#0284C7]">Pomodoro Focus</p>
+                  <h3 className="font-heading font-bold text-lg text-[#0C4A6E] mt-1">
+                    Deep Work Timer & Audio Chimes
+                  </h3>
+                  <p className="text-xs text-[#0369A1]/80 mt-2 leading-relaxed">
+                    Integrated Pomodoro timer linked to today&apos;s chapters. Tick off study sessions when finished.
+                  </p>
+                </div>
+                <div className="pt-6 mt-4 border-t border-[#BAE6FD]/60 flex items-center justify-between text-xs font-semibold text-[#0369A1]">
+                  <span>Start studying</span>
+                  <span>↗</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* The Problem in Three Short Cards */}
         <section aria-labelledby="problem-heading" className="py-16 bg-surface/50 border-y border-border">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
