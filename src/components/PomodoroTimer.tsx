@@ -1,18 +1,34 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Play, Pause, RotateCcw, SkipForward, Volume2, VolumeX, Maximize2, Minimize2, Check, Sparkles } from 'lucide-react';
+import {
+  Play,
+  Pause,
+  RotateCcw,
+  SkipForward,
+  Volume2,
+  VolumeX,
+  Maximize2,
+  Minimize2,
+  Check,
+  Sparkles,
+} from 'lucide-react';
 import { SubjectBadge } from './SubjectBadge';
+import { dataService } from '../lib/dataService';
 import type { Block, Subject, Chapter } from '../types/database';
 
 export interface PomodoroTimerProps {
+  userId?: string;
   todayBlocks?: Block[];
   subjects?: Subject[];
   chapters?: Chapter[];
   onMarkBlockDone?: (block: Block) => Promise<void>;
   defaultSessionMin?: number;
+  activeBlockId?: string;
   className?: string;
 }
 
 type TimerMode = 'focus' | 'shortBreak' | 'longBreak';
+
+const STORAGE_KEY_STATE = 'planora_pomodoro_state';
 
 function playChime() {
   try {
@@ -20,22 +36,23 @@ function playChime() {
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
 
-    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6 chord
+    // Pleasant three-tone chime (F5, A5, C6)
+    const notes = [698.46, 880.0, 1046.5];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.12);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.15);
 
-      gain.gain.setValueAtTime(0, ctx.currentTime + idx * 0.12);
-      gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + idx * 0.12 + 0.05);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.12 + 0.9);
+      gain.gain.setValueAtTime(0, ctx.currentTime + idx * 0.15);
+      gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + idx * 0.15 + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.15 + 0.85);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
 
-      osc.start(ctx.currentTime + idx * 0.12);
-      osc.stop(ctx.currentTime + idx * 0.12 + 1.0);
+      osc.start(ctx.currentTime + idx * 0.15);
+      osc.stop(ctx.currentTime + idx * 0.15 + 0.95);
     });
   } catch (err) {
     console.warn('Audio chime error:', err);
@@ -43,11 +60,13 @@ function playChime() {
 }
 
 export const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
+  userId,
   todayBlocks = [],
   subjects = [],
   chapters = [],
   onMarkBlockDone,
   defaultSessionMin = 25,
+  activeBlockId,
   className = '',
 }) => {
   const [mode, setMode] = useState<TimerMode>('focus');
@@ -58,30 +77,45 @@ export const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
   const chapterMap = useMemo(() => new Map(chapters.map((c) => [c.id, c])), [chapters]);
   const subjectMap = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects]);
 
-  const getDuration = useCallback((m: TimerMode) => {
-    if (m === 'focus') return focusDuration;
-    if (m === 'shortBreak') return shortBreakDuration;
-    return longBreakDuration;
-  }, [focusDuration, shortBreakDuration, longBreakDuration]);
+  const getDuration = useCallback(
+    (m: TimerMode) => {
+      if (m === 'focus') return focusDuration;
+      if (m === 'shortBreak') return shortBreakDuration;
+      return longBreakDuration;
+    },
+    [focusDuration, shortBreakDuration, longBreakDuration]
+  );
 
   const [timeLeft, setTimeLeft] = useState<number>(focusDuration);
   const [isRunning, setIsRunning] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [completedSessions, setCompletedSessions] = useState(0);
+  const [selectedBlockId, setSelectedBlockId] = useState<string>(activeBlockId || '');
 
-  const [selectedBlockId, setSelectedBlockId] = useState<string>('');
-  const timerRef = useRef<number | null>(null);
+  // Persistent target end timestamp for exact calculations
+  const targetEndTimeRef = useRef<number | null>(null);
+  const sessionStartTimestampRef = useRef<number | null>(null);
 
+  // Sync activeBlockId prop if provided
+  useEffect(() => {
+    if (activeBlockId) {
+      setSelectedBlockId(activeBlockId);
+    }
+  }, [activeBlockId]);
+
+  // Adjust default session length if changed
   useEffect(() => {
     if (defaultSessionMin && defaultSessionMin > 0) {
-      setFocusDuration(defaultSessionMin * 60);
+      const sec = defaultSessionMin * 60;
+      setFocusDuration(sec);
       if (mode === 'focus' && !isRunning) {
-        setTimeLeft(defaultSessionMin * 60);
+        setTimeLeft(sec);
       }
     }
   }, [defaultSessionMin, mode, isRunning]);
 
+  // Auto-select first incomplete block for today
   useEffect(() => {
     if (!selectedBlockId && todayBlocks.length > 0) {
       const firstIncomplete = todayBlocks.find((b) => b.status !== 'done');
@@ -95,46 +129,138 @@ export const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
   const activeChapter = selectedBlock ? chapterMap.get(selectedBlock.chapter_id) : null;
   const activeSubject = activeChapter ? subjectMap.get(activeChapter.subject_id) : null;
 
+  // Restore saved state from localStorage on mount
   useEffect(() => {
-    if (isRunning) {
-      timerRef.current = window.setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current!);
-            setIsRunning(false);
-            if (soundEnabled) {
-              playChime();
-            }
-
-            if (mode === 'focus') {
-              setCompletedSessions((c) => c + 1);
-              setMode('shortBreak');
-              return shortBreakDuration;
-            } else {
-              setMode('focus');
-              return focusDuration;
-            }
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_STATE);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved.targetEndTime && saved.isRunning) {
+          const remainingMs = saved.targetEndTime - Date.now();
+          if (remainingMs > 0) {
+            targetEndTimeRef.current = saved.targetEndTime;
+            sessionStartTimestampRef.current = saved.sessionStartTimestamp || Date.now();
+            setMode(saved.mode || 'focus');
+            setTimeLeft(Math.ceil(remainingMs / 1000));
+            setIsRunning(true);
+            if (saved.selectedBlockId) setSelectedBlockId(saved.selectedBlockId);
+          } else {
+            // Already finished while tab was closed
+            localStorage.removeItem(STORAGE_KEY_STATE);
           }
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (timerRef.current) {
-      clearInterval(timerRef.current);
+        }
+      }
+    } catch {
+      // Ignore parse errors
     }
+  }, []);
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isRunning, mode, soundEnabled, focusDuration, shortBreakDuration]);
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    if (isRunning && targetEndTimeRef.current) {
+      localStorage.setItem(
+        STORAGE_KEY_STATE,
+        JSON.stringify({
+          isRunning: true,
+          mode,
+          targetEndTime: targetEndTimeRef.current,
+          sessionStartTimestamp: sessionStartTimestampRef.current,
+          selectedBlockId,
+        })
+      );
+    } else {
+      localStorage.removeItem(STORAGE_KEY_STATE);
+    }
+  }, [isRunning, mode, selectedBlockId]);
+
+  // Log session to database
+  const recordFocusSession = useCallback(
+    async (durationSec: number) => {
+      if (!userId || durationSec < 30) return;
+      try {
+        await dataService.logFocusSession({
+          user_id: userId,
+          chapter_id: activeChapter?.id || null,
+          subject_id: activeSubject?.id || null,
+          block_id: selectedBlock?.id || null,
+          duration_sec: durationSec,
+          session_type: mode === 'focus' ? 'pomodoro' : mode === 'shortBreak' ? 'short_break' : 'long_break',
+        });
+      } catch (err) {
+        console.warn('Failed to record focus log:', err);
+      }
+    },
+    [userId, activeChapter, activeSubject, selectedBlock, mode]
+  );
+
+  // Main countdown effect using timestamp difference (immune to tab throttling)
+  useEffect(() => {
+    if (!isRunning) return;
+
+    const interval = setInterval(() => {
+      if (!targetEndTimeRef.current) return;
+      const remainingMs = targetEndTimeRef.current - Date.now();
+      const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+
+      setTimeLeft(remainingSec);
+
+      if (remainingSec <= 0) {
+        clearInterval(interval);
+        setIsRunning(false);
+        targetEndTimeRef.current = null;
+
+        if (soundEnabled) {
+          playChime();
+        }
+
+        // Record completed focus session
+        if (mode === 'focus') {
+          setCompletedSessions((c) => c + 1);
+          recordFocusSession(focusDuration);
+          setMode('shortBreak');
+          setTimeLeft(shortBreakDuration);
+        } else {
+          setMode('focus');
+          setTimeLeft(focusDuration);
+        }
+      }
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [isRunning, mode, soundEnabled, focusDuration, shortBreakDuration, recordFocusSession]);
+
+  const toggleStartPause = () => {
+    if (isRunning) {
+      // Pause
+      if (sessionStartTimestampRef.current) {
+        const elapsedSec = Math.floor((Date.now() - sessionStartTimestampRef.current) / 1000);
+        if (mode === 'focus' && elapsedSec >= 60) {
+          recordFocusSession(elapsedSec);
+        }
+      }
+      setIsRunning(false);
+      targetEndTimeRef.current = null;
+      sessionStartTimestampRef.current = null;
+    } else {
+      // Start
+      targetEndTimeRef.current = Date.now() + timeLeft * 1000;
+      sessionStartTimestampRef.current = Date.now();
+      setIsRunning(true);
+    }
+  };
 
   const switchMode = (newMode: TimerMode) => {
     setIsRunning(false);
+    targetEndTimeRef.current = null;
+    sessionStartTimestampRef.current = null;
     setMode(newMode);
     setTimeLeft(getDuration(newMode));
   };
 
   const resetTimer = () => {
     setIsRunning(false);
+    targetEndTimeRef.current = null;
+    sessionStartTimestampRef.current = null;
     setTimeLeft(getDuration(mode));
   };
 
@@ -154,16 +280,16 @@ export const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
 
   return (
     <div
-      className={`rounded-card border transition-all ${
+      className={`rounded-2xl border transition-all ${
         isFullScreen
           ? 'fixed inset-0 z-50 bg-bg p-8 flex flex-col items-center justify-center'
-          : `bg-surface border-border p-5 shadow-card ${className}`
+          : `bg-surface border-border p-5 sm:p-6 shadow-sm ${className}`
       }`}
     >
       {/* Top Bar */}
       <div className="flex items-center justify-between w-full mb-4">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-primary-soft text-primary flex items-center justify-center">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
@@ -174,20 +300,20 @@ export const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => setSoundEnabled(!soundEnabled)}
-            aria-label={soundEnabled ? 'Mute sound' : 'Enable sound'}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-2 transition-colors"
+            aria-label={soundEnabled ? 'Mute audio' : 'Enable audio'}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted hover:text-ink hover:bg-surface-2 transition-colors"
           >
-            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-muted-dim" />}
+            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-muted" />}
           </button>
           <button
             type="button"
             onClick={() => setIsFullScreen(!isFullScreen)}
             aria-label={isFullScreen ? 'Exit full screen' : 'Full screen focus mode'}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-2 transition-colors"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted hover:text-ink hover:bg-surface-2 transition-colors"
           >
             {isFullScreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
@@ -195,152 +321,128 @@ export const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
       </div>
 
       {/* Mode Switcher Tabs */}
-      <div className="flex items-center justify-center p-1 rounded-pill bg-surface-2 border border-border w-full max-w-xs mx-auto mb-5 text-xs font-semibold">
+      <div className="flex items-center justify-center p-1 rounded-xl bg-surface-2 border border-border w-full max-w-xs mx-auto mb-5 text-xs font-semibold">
         <button
           type="button"
           onClick={() => switchMode('focus')}
-          className={`flex-1 py-1.5 rounded-pill transition-all ${
-            mode === 'focus'
-              ? 'bg-ink text-white shadow-sm'
-              : 'text-muted hover:text-ink'
+          className={`flex-1 py-1.5 rounded-lg transition-all ${
+            mode === 'focus' ? 'bg-primary text-white shadow-sm' : 'text-muted hover:text-ink'
           }`}
         >
-          Focus
+          Focus ({Math.floor(focusDuration / 60)}m)
         </button>
         <button
           type="button"
           onClick={() => switchMode('shortBreak')}
-          className={`flex-1 py-1.5 rounded-pill transition-all ${
-            mode === 'shortBreak'
-              ? 'bg-ink text-white shadow-sm'
-              : 'text-muted hover:text-ink'
+          className={`flex-1 py-1.5 rounded-lg transition-all ${
+            mode === 'shortBreak' ? 'bg-primary text-white shadow-sm' : 'text-muted hover:text-ink'
           }`}
         >
-          Short Break
+          Break (5m)
         </button>
         <button
           type="button"
           onClick={() => switchMode('longBreak')}
-          className={`flex-1 py-1.5 rounded-pill transition-all ${
-            mode === 'longBreak'
-              ? 'bg-ink text-white shadow-sm'
-              : 'text-muted hover:text-ink'
+          className={`flex-1 py-1.5 rounded-lg transition-all ${
+            mode === 'longBreak' ? 'bg-primary text-white shadow-sm' : 'text-muted hover:text-ink'
           }`}
         >
-          Long Break
+          Long (15m)
         </button>
       </div>
 
-      {/* Circular Timer Display */}
-      <div className="flex flex-col items-center justify-center my-3 relative">
-        <div className="relative w-44 h-44 flex items-center justify-center">
-          <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 100 100">
-            {/* Background ring */}
-            <circle
-              cx="50"
-              cy="50"
-              r="45"
-              fill="transparent"
-              stroke="var(--surface-2)"
-              strokeWidth="6"
-            />
-            {/* Progress ring with light blue accent */}
-            <circle
-              cx="50"
-              cy="50"
-              r="45"
-              fill="transparent"
-              stroke="var(--primary)"
-              strokeWidth="6"
-              strokeDasharray="283"
-              strokeDashoffset={strokeDashoffset}
-              strokeLinecap="round"
-              className="transition-all duration-500 ease-linear"
-            />
-          </svg>
-
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-            <span className="font-heading font-bold text-3xl text-ink tracking-tight">
-              {timeFormatted}
-            </span>
-            <span className="text-[11px] font-medium text-muted uppercase tracking-wider mt-1">
-              {mode === 'focus' ? 'Deep Work' : mode === 'shortBreak' ? 'Short Rest' : 'Long Rest'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Linked Study Block (Optional) */}
-      {todayBlocks.length > 0 && mode === 'focus' && (
-        <div className="my-3 p-3 rounded-card bg-surface-2/60 border border-border w-full max-w-sm mx-auto">
-          <label className="block text-[10px] font-semibold text-muted uppercase tracking-wider mb-1.5">
-            Link to Scheduled Block
-          </label>
-          <div className="flex items-center gap-2">
-            <select
-              value={selectedBlockId}
-              onChange={(e) => setSelectedBlockId(e.target.value)}
-              className="flex-1 text-xs bg-surface border border-border rounded-input px-2.5 py-1.5 text-ink focus:border-primary truncate"
-            >
-              <option value="">No block linked (General Study)</option>
-              {todayBlocks.map((b) => {
-                const ch = chapterMap.get(b.chapter_id);
-                return (
-                  <option key={b.id} value={b.id}>
-                    {ch?.title || 'Chapter Study'} {b.status === 'done' ? '✓' : ''}
-                  </option>
-                );
-              })}
-            </select>
-
-            {selectedBlock && selectedBlock.status !== 'done' && onMarkBlockDone && (
-              <button
-                type="button"
-                onClick={handleMarkBlockComplete}
-                title="Mark this block as completed"
-                className="px-2.5 py-1.5 rounded-input bg-mint-soft text-mint border border-mint/30 hover:bg-mint hover:text-white transition-colors text-xs font-semibold flex items-center gap-1 flex-shrink-0"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Done</span>
-              </button>
+      {/* Active Session Linked Block Selector */}
+      {todayBlocks.length > 0 && (
+        <div className="w-full max-w-md mx-auto mb-4 bg-surface-2/60 border border-border rounded-xl p-2.5">
+          <div className="flex items-center justify-between text-[11px] text-muted mb-1 px-1">
+            <span>Targeting Today&apos;s Block</span>
+            {selectedBlock?.status === 'done' && (
+              <span className="text-mint font-semibold flex items-center gap-1">
+                <Check className="w-3 h-3" /> Completed
+              </span>
             )}
           </div>
-
-          {activeSubject && activeChapter && (
-            <div className="mt-2 flex items-center gap-2">
-              <SubjectBadge name={activeSubject.name} colorKey={activeSubject.color_key as any} size="sm" />
-              <span className="text-xs text-ink font-medium truncate">{activeChapter.title}</span>
-            </div>
-          )}
+          <select
+            value={selectedBlockId}
+            onChange={(e) => setSelectedBlockId(e.target.value)}
+            className="w-full bg-surface border border-border rounded-lg text-xs font-medium text-ink px-2.5 py-1.5 focus:outline-none focus:border-primary"
+          >
+            <option value="">-- General Focus Session --</option>
+            {todayBlocks.map((b) => {
+              const ch = chapterMap.get(b.chapter_id);
+              const sub = ch ? subjectMap.get(ch.subject_id) : undefined;
+              return (
+                <option key={b.id} value={b.id}>
+                  {sub?.name || 'Subject'}: {ch?.title || 'Chapter'} ({b.duration_min}m) {b.status === 'done' ? '✓' : ''}
+                </option>
+              );
+            })}
+          </select>
         </div>
       )}
 
+      {/* Central Circular Progress Display */}
+      <div className="relative flex items-center justify-center my-4">
+        <svg className="w-56 h-56 transform -rotate-90" viewBox="0 0 100 100">
+          <circle
+            cx="50"
+            cy="50"
+            r="45"
+            className="stroke-surface-2"
+            strokeWidth="5"
+            fill="transparent"
+          />
+          <circle
+            cx="50"
+            cy="50"
+            r="45"
+            className="stroke-primary transition-all duration-300"
+            strokeWidth="5"
+            fill="transparent"
+            strokeDasharray="283"
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+          />
+        </svg>
+
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+          <span className="font-mono text-4xl sm:text-5xl font-bold tracking-tight text-ink">
+            {timeFormatted}
+          </span>
+          <span className="text-xs uppercase font-bold tracking-widest text-primary mt-1">
+            {mode === 'focus' ? 'Deep Work' : 'Break Time'}
+          </span>
+          {activeSubject && mode === 'focus' && (
+            <div className="mt-2 max-w-[160px] truncate">
+              <SubjectBadge name={activeSubject.name} colorKey={activeSubject.color_key} size="sm" />
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Controls */}
-      <div className="flex items-center justify-center gap-3 mt-4">
+      <div className="flex items-center justify-center gap-4 mt-3">
         <button
           type="button"
           onClick={resetTimer}
           aria-label="Reset timer"
-          className="w-10 h-10 rounded-full border border-border bg-surface-2 hover:bg-slate-200 text-muted hover:text-ink flex items-center justify-center transition-colors pressable"
+          className="w-10 h-10 rounded-xl bg-surface-2 border border-border text-muted hover:text-ink flex items-center justify-center transition-colors"
         >
           <RotateCcw className="w-4 h-4" />
         </button>
 
         <button
           type="button"
-          onClick={() => setIsRunning(!isRunning)}
-          aria-label={isRunning ? 'Pause timer' : 'Start timer'}
-          className="px-6 py-2.5 rounded-pill bg-ink text-white hover:bg-slate-800 font-semibold text-xs flex items-center gap-2 transition-colors pressable shadow-sm"
+          onClick={toggleStartPause}
+          className="px-7 py-3 rounded-xl bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-sm transition-all flex items-center gap-2"
         >
           {isRunning ? (
             <>
-              <Pause className="w-4 h-4" />
-              <span>Pause</span>
+              <Pause className="w-4 h-4 fill-current" /> Pause
             </>
           ) : (
             <>
-              <Play className="w-4 h-4 fill-current" />
-              <span>Start Focus</span>
+              <Play className="w-4 h-4 fill-current" /> Start Focus
             </>
           )}
         </button>
@@ -348,19 +450,28 @@ export const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
         <button
           type="button"
           onClick={() => {
-            setIsRunning(false);
-            if (mode === 'focus') {
-              switchMode('shortBreak');
-            } else {
-              switchMode('focus');
-            }
+            if (mode === 'focus') switchMode('shortBreak');
+            else switchMode('focus');
           }}
-          aria-label="Skip to next session"
-          className="w-10 h-10 rounded-full border border-border bg-surface-2 hover:bg-slate-200 text-muted hover:text-ink flex items-center justify-center transition-colors pressable"
+          aria-label="Skip session"
+          className="w-10 h-10 rounded-xl bg-surface-2 border border-border text-muted hover:text-ink flex items-center justify-center transition-colors"
         >
           <SkipForward className="w-4 h-4" />
         </button>
       </div>
+
+      {/* Quick Mark Block As Done shortcut */}
+      {selectedBlock && selectedBlock.status !== 'done' && (
+        <div className="mt-5 pt-4 border-t border-border flex items-center justify-center">
+          <button
+            type="button"
+            onClick={handleMarkBlockComplete}
+            className="text-xs font-semibold text-mint hover:underline flex items-center gap-1.5"
+          >
+            <Check className="w-4 h-4 stroke-[3]" /> Mark current block as finished
+          </button>
+        </div>
+      )}
     </div>
   );
 };

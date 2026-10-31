@@ -4,6 +4,7 @@ import { Plus, Trash2, ArrowRight, ArrowLeft, Sparkles, FileText, Upload, Check,
 import { useAuth } from '../context/AuthContext';
 import { dataService } from '../lib/dataService';
 import { generateSchedule, formatDate } from '../lib/scheduler';
+import { parsePdfSyllabus } from '../lib/pdfParser';
 import { SubjectBadge } from '../components/SubjectBadge';
 import { Seo } from '../components/Seo';
 import type { Block } from '../types/database';
@@ -172,8 +173,23 @@ export const SetupPage: React.FC = () => {
     if (!file) return;
 
     if (file.name.toLowerCase().endsWith('.pdf')) {
-      setErrorMsg("PDFs aren't supported yet — paste the text instead.");
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setErrorMsg(null);
+      parsePdfSyllabus(file)
+        .then((result) => {
+          if (result.subjects.length > 0 && result.subjects[0].chapters.length > 0) {
+            const chs = result.subjects[0].chapters.map((c) => ({
+              title: c.title,
+              est_min: c.est_min || 60,
+            }));
+            setParsedReviewList(chs);
+            showToast(`Extracted ${chs.length} chapters from PDF syllabus!`);
+          } else {
+            setErrorMsg('No structured chapters found in PDF. Try pasting text.');
+          }
+        })
+        .catch((err) => {
+          setErrorMsg('Failed to parse PDF: ' + err.message);
+        });
       return;
     }
 
@@ -237,14 +253,16 @@ export const SetupPage: React.FC = () => {
         color_key: s.color_key,
         exam_date: s.exam_date || null,
         priority: s.priority,
+        is_archived: false,
       }));
       const createdSubjects = await dataService.createSubjects(subjectsToCreate);
 
       // Create mapping from tempId to created subject id
       const subjectIdMap = new Map<string, string>();
       subjects.forEach((s, idx) => {
-        if (createdSubjects[idx]) {
-          subjectIdMap.set(s.tempId, createdSubjects[idx].id);
+        const found = createdSubjects[idx] || createdSubjects.find((cs) => cs.name === s.name);
+        if (found) {
+          subjectIdMap.set(s.tempId, found.id);
         }
       });
 

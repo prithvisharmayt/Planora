@@ -1,4 +1,13 @@
-import type { Profile, Subject, Chapter, Block } from '../types/database';
+import type {
+  Profile,
+  Subject,
+  Chapter,
+  Block,
+  AcademicEvent,
+  FocusLog,
+  ImportBatch,
+  ScheduleSnapshot,
+} from '../types/database';
 
 const GS_URL_STORAGE_KEY = 'planora_google_sheet_url';
 const LOCAL_SHEET_KEY_PREFIX = 'planora_sheet_tab_';
@@ -89,13 +98,14 @@ export const googleSheetsService = {
       id: profile.id,
       user_id: profile.id,
       name: profile.name ?? existing?.name ?? 'Student',
+      college: profile.college ?? existing?.college,
+      program: profile.program ?? existing?.program,
       daily_hours: profile.daily_hours ?? existing?.daily_hours ?? 3,
       session_min: profile.session_min ?? existing?.session_min ?? 45,
       break_min: profile.break_min ?? existing?.break_min ?? 10,
       created_at: existing?.created_at ?? new Date().toISOString(),
     };
 
-    // Save locally
     const profiles = this.getLocalTab<Profile>('profiles');
     const idx = profiles.findIndex((p) => p.id === profile.id);
     if (idx >= 0) {
@@ -105,7 +115,6 @@ export const googleSheetsService = {
     }
     this.setLocalTab('profiles', profiles);
 
-    // Sync to remote if connected
     if (this.isGoogleSheetConnected()) {
       this.callRemote('upsertProfile', { profile: updated }).catch((e) =>
         console.warn('Sync profile to Google Sheets error:', e)
@@ -120,13 +129,12 @@ export const googleSheetsService = {
     if (this.isGoogleSheetConnected()) {
       const res = await this.callRemote('getAll', { userId });
       if (res && res.subjects && res.subjects.length > 0) {
-        // Cache to local tab
         this.setLocalTab('subjects', res.subjects);
-        return res.subjects;
+        return res.subjects.filter((s: Subject) => !s.is_archived);
       }
     }
     const subjects = this.getLocalTab<Subject>('subjects');
-    return subjects.filter((s) => !userId || s.user_id === userId);
+    return subjects.filter((s) => (!userId || s.user_id === userId || !s.user_id) && !s.is_archived);
   },
 
   async createSubjects(newSubjects: Omit<Subject, 'id' | 'created_at'>[]): Promise<Subject[]> {
@@ -149,6 +157,63 @@ export const googleSheetsService = {
     return created;
   },
 
+  async updateSubject(subjectId: string, updates: Partial<Subject>): Promise<void> {
+    const subjects = this.getLocalTab<Subject>('subjects');
+    const idx = subjects.findIndex((s) => s.id === subjectId);
+    if (idx >= 0) {
+      subjects[idx] = { ...subjects[idx], ...updates };
+      this.setLocalTab('subjects', subjects);
+    }
+    if (this.isGoogleSheetConnected()) {
+      this.callRemote('updateSubject', { subjectId, updates }).catch((e) =>
+        console.warn('Sync subject update to Google Sheets error:', e)
+      );
+    }
+  },
+
+  async deleteSubject(subjectId: string, userId: string): Promise<void> {
+    // Delete subject
+    const subjects = this.getLocalTab<Subject>('subjects');
+    this.setLocalTab(
+      'subjects',
+      subjects.filter((s) => s.id !== subjectId)
+    );
+
+    // Delete chapters under this subject
+    const chapters = this.getLocalTab<Chapter>('chapters');
+    const chapterIdsToDelete = new Set(
+      chapters.filter((c) => c.subject_id === subjectId).map((c) => c.id)
+    );
+    this.setLocalTab(
+      'chapters',
+      chapters.filter((c) => c.subject_id !== subjectId)
+    );
+
+    // Delete blocks under these chapters or subject
+    const blocks = this.getLocalTab<Block>('blocks');
+    this.setLocalTab(
+      'blocks',
+      blocks.filter(
+        (b) =>
+          b.subject_id !== subjectId &&
+          !chapterIdsToDelete.has(b.chapter_id)
+      )
+    );
+
+    // Delete academic events for this subject
+    const events = this.getLocalTab<AcademicEvent>('academic_events');
+    this.setLocalTab(
+      'academic_events',
+      events.filter((e) => e.subject_id !== subjectId)
+    );
+
+    if (this.isGoogleSheetConnected()) {
+      this.callRemote('deleteSubject', { subjectId, userId }).catch((e) =>
+        console.warn('Sync deleteSubject to Google Sheets error:', e)
+      );
+    }
+  },
+
   // Chapters
   async getChapters(userId: string): Promise<Chapter[]> {
     if (this.isGoogleSheetConnected()) {
@@ -159,7 +224,7 @@ export const googleSheetsService = {
       }
     }
     const chapters = this.getLocalTab<Chapter>('chapters');
-    return chapters.filter((c) => !userId || c.user_id === userId);
+    return chapters.filter((c) => !userId || c.user_id === userId || !c.user_id);
   },
 
   async createChapters(newChapters: Omit<Chapter, 'id' | 'created_at'>[]): Promise<Chapter[]> {
@@ -197,6 +262,27 @@ export const googleSheetsService = {
     }
   },
 
+  async deleteChapter(chapterId: string, _userId: string): Promise<void> {
+    const chapters = this.getLocalTab<Chapter>('chapters');
+    this.setLocalTab(
+      'chapters',
+      chapters.filter((c) => c.id !== chapterId)
+    );
+
+    // Delete associated blocks
+    const blocks = this.getLocalTab<Block>('blocks');
+    this.setLocalTab(
+      'blocks',
+      blocks.filter((b) => b.chapter_id !== chapterId)
+    );
+
+    if (this.isGoogleSheetConnected()) {
+      this.callRemote('deleteChapter', { chapterId }).catch((e) =>
+        console.warn('Sync deleteChapter to Google Sheets error:', e)
+      );
+    }
+  },
+
   // Blocks
   async getBlocks(userId: string): Promise<Block[]> {
     if (this.isGoogleSheetConnected()) {
@@ -208,7 +294,7 @@ export const googleSheetsService = {
     }
     const blocks = this.getLocalTab<Block>('blocks');
     return blocks
-      .filter((b) => !userId || b.user_id === userId)
+      .filter((b) => !userId || b.user_id === userId || !b.user_id)
       .sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min);
   },
 
@@ -232,25 +318,39 @@ export const googleSheetsService = {
     return created;
   },
 
-  async updateBlockStatus(blockId: string, status: 'scheduled' | 'done' | 'missed'): Promise<void> {
+  async updateBlock(blockId: string, updates: Partial<Block>): Promise<void> {
     const blocks = this.getLocalTab<Block>('blocks');
     const idx = blocks.findIndex((b) => b.id === blockId);
     if (idx >= 0) {
-      blocks[idx].status = status;
+      blocks[idx] = { ...blocks[idx], ...updates };
       this.setLocalTab('blocks', blocks);
     }
 
     if (this.isGoogleSheetConnected()) {
-      this.callRemote('updateBlockStatus', { blockId, status }).catch((e) =>
-        console.warn('Sync block status to Google Sheets error:', e)
+      this.callRemote('updateBlock', { blockId, updates }).catch((e) =>
+        console.warn('Sync block update to Google Sheets error:', e)
       );
     }
   },
 
-  async replaceIncompleteBlocks(userId: string, todayStr: string, newBlocks: Omit<Block, 'id' | 'created_at'>[]): Promise<Block[]> {
+  async updateBlockStatus(blockId: string, status: 'scheduled' | 'done' | 'missed'): Promise<void> {
+    return this.updateBlock(blockId, { status });
+  },
+
+  async replaceIncompleteBlocks(
+    userId: string,
+    todayStr: string,
+    newBlocks: Omit<Block, 'id' | 'created_at'>[]
+  ): Promise<Block[]> {
     const existing = this.getLocalTab<Block>('blocks');
-    // Keep blocks that belong to another user, or are marked 'done', or date < todayStr
-    const kept = existing.filter((b) => b.user_id !== userId || b.status === 'done' || b.date < todayStr);
+    // Keep blocks that belong to another user, or are marked 'done', or date < todayStr, or are locked
+    const kept = existing.filter(
+      (b) =>
+        b.user_id !== userId ||
+        b.status === 'done' ||
+        b.is_locked ||
+        b.date < todayStr
+    );
 
     const created: Block[] = newBlocks.map((b, idx) => ({
       ...b,
@@ -270,6 +370,139 @@ export const googleSheetsService = {
     return created;
   },
 
+  // Academic Events
+  async getAcademicEvents(userId: string): Promise<AcademicEvent[]> {
+    const events = this.getLocalTab<AcademicEvent>('academic_events');
+    return events
+      .filter((e) => !userId || e.user_id === userId)
+      .sort((a, b) => a.start_date.localeCompare(b.start_date));
+  },
+
+  async createAcademicEvents(
+    newEvents: Omit<AcademicEvent, 'id' | 'created_at'>[]
+  ): Promise<AcademicEvent[]> {
+    const created: AcademicEvent[] = newEvents.map((e, idx) => ({
+      ...e,
+      id: `evt_${Date.now()}_${idx}`,
+      created_at: new Date().toISOString(),
+    }));
+    const existing = this.getLocalTab<AcademicEvent>('academic_events');
+    this.setLocalTab('academic_events', [...existing, ...created]);
+    return created;
+  },
+
+  async updateAcademicEvent(id: string, updates: Partial<AcademicEvent>): Promise<void> {
+    const events = this.getLocalTab<AcademicEvent>('academic_events');
+    const idx = events.findIndex((e) => e.id === id);
+    if (idx >= 0) {
+      events[idx] = { ...events[idx], ...updates };
+      this.setLocalTab('academic_events', events);
+    }
+  },
+
+  async deleteAcademicEvent(id: string): Promise<void> {
+    const events = this.getLocalTab<AcademicEvent>('academic_events');
+    this.setLocalTab(
+      'academic_events',
+      events.filter((e) => e.id !== id)
+    );
+  },
+
+  // Focus Logs
+  async getFocusLogs(userId: string): Promise<FocusLog[]> {
+    const logs = this.getLocalTab<FocusLog>('focus_logs');
+    return logs
+      .filter((l) => !userId || l.user_id === userId)
+      .sort((a, b) => b.completed_at.localeCompare(a.completed_at));
+  },
+
+  async logFocusSession(
+    log: Omit<FocusLog, 'id' | 'completed_at'> & { completed_at?: string }
+  ): Promise<FocusLog> {
+    const newLog: FocusLog = {
+      ...log,
+      id: `foc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      completed_at: log.completed_at || new Date().toISOString(),
+    };
+    const existing = this.getLocalTab<FocusLog>('focus_logs');
+    this.setLocalTab('focus_logs', [newLog, ...existing]);
+
+    // Also update chapter completed_focus_min if chapter_id is provided
+    if (log.chapter_id) {
+      const minutes = Math.round(log.duration_sec / 60);
+      const chapters = this.getLocalTab<Chapter>('chapters');
+      const idx = chapters.findIndex((c) => c.id === log.chapter_id);
+      if (idx >= 0) {
+        chapters[idx].completed_focus_min = (chapters[idx].completed_focus_min || 0) + minutes;
+        chapters[idx].last_studied_date = new Date().toISOString().split('T')[0];
+        this.setLocalTab('chapters', chapters);
+      }
+    }
+
+    return newLog;
+  },
+
+  // Import Batches
+  async getImportBatches(userId: string): Promise<ImportBatch[]> {
+    const batches = this.getLocalTab<ImportBatch>('import_batches');
+    return batches
+      .filter((b) => !userId || b.user_id === userId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  },
+
+  async createImportBatch(batch: Omit<ImportBatch, 'id' | 'created_at'>): Promise<ImportBatch> {
+    const created: ImportBatch = {
+      ...batch,
+      id: `batch_${Date.now()}`,
+      created_at: new Date().toISOString(),
+    };
+    const existing = this.getLocalTab<ImportBatch>('import_batches');
+    this.setLocalTab('import_batches', [created, ...existing]);
+    return created;
+  },
+
+  // Schedule Snapshots
+  async getSnapshots(userId: string): Promise<ScheduleSnapshot[]> {
+    const snapshots = this.getLocalTab<ScheduleSnapshot>('schedule_snapshots');
+    return snapshots
+      .filter((s) => !userId || s.user_id === userId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  },
+
+  async getLatestSnapshot(userId: string): Promise<ScheduleSnapshot | null> {
+    const snapshots = await this.getSnapshots(userId);
+    return snapshots[0] || null;
+  },
+
+  async saveSnapshot(userId: string, blocksJson: string, reason: string): Promise<ScheduleSnapshot> {
+    const created: ScheduleSnapshot = {
+      id: `snap_${Date.now()}`,
+      user_id: userId,
+      blocks_json: blocksJson,
+      reason,
+      created_at: new Date().toISOString(),
+    };
+    const existing = this.getLocalTab<ScheduleSnapshot>('schedule_snapshots');
+    // keep up to 10 snapshots per user
+    const updated = [created, ...existing.filter((s) => s.user_id === userId).slice(0, 9)];
+    this.setLocalTab('schedule_snapshots', updated);
+    return created;
+  },
+
+  async restoreSnapshot(snapshotId: string, userId: string): Promise<Block[]> {
+    const snapshots = this.getLocalTab<ScheduleSnapshot>('schedule_snapshots');
+    const snapshot = snapshots.find((s) => s.id === snapshotId && s.user_id === userId);
+    if (!snapshot) throw new Error('Snapshot not found');
+
+    const restoredBlocks: Block[] = JSON.parse(snapshot.blocks_json);
+    const allBlocks = this.getLocalTab<Block>('blocks');
+    const otherUsersBlocks = allBlocks.filter((b) => b.user_id !== userId);
+    this.setLocalTab('blocks', [...otherUsersBlocks, ...restoredBlocks]);
+
+    return restoredBlocks;
+  },
+
+  // Clear data
   async clearUserData(userId: string): Promise<void> {
     const filterOut = <T extends { user_id?: string; id?: string }>(tab: string) => {
       const rows = this.getLocalTab<T>(tab);
@@ -281,6 +514,10 @@ export const googleSheetsService = {
     filterOut('subjects');
     filterOut('chapters');
     filterOut('blocks');
+    filterOut('academic_events');
+    filterOut('focus_logs');
+    filterOut('import_batches');
+    filterOut('schedule_snapshots');
 
     if (this.isGoogleSheetConnected()) {
       this.callRemote('clearUserData', { userId }).catch((e) =>
@@ -289,7 +526,7 @@ export const googleSheetsService = {
     }
   },
 
-  // Export to CSV helper for opening directly in Google Sheets / Excel
+  // Export to CSV helper
   exportTableToCsv<T extends Record<string, any>>(tabName: string, rows: T[]): string {
     if (rows.length === 0) return `${tabName} (Empty)\n`;
     const headers = Object.keys(rows[0]);
@@ -313,11 +550,15 @@ export const googleSheetsService = {
     const subjects = this.getLocalTab<Subject>('subjects').filter((s) => !userId || s.user_id === userId);
     const chapters = this.getLocalTab<Chapter>('chapters').filter((c) => !userId || c.user_id === userId);
     const blocks = this.getLocalTab<Block>('blocks').filter((b) => !userId || b.user_id === userId);
+    const events = this.getLocalTab<AcademicEvent>('academic_events').filter((e) => !userId || e.user_id === userId);
+    const logs = this.getLocalTab<FocusLog>('focus_logs').filter((l) => !userId || l.user_id === userId);
 
-    let fullExport = '=== PLANORA GOOGLE SHEETS EXPORT ===\n\n';
+    let fullExport = '=== PLANORA STUDY PLAN EXPORT ===\n\n';
     fullExport += '--- SUBJECTS TAB ---\n' + this.exportTableToCsv('subjects', subjects) + '\n\n';
     fullExport += '--- CHAPTERS TAB ---\n' + this.exportTableToCsv('chapters', chapters) + '\n\n';
-    fullExport += '--- SCHEDULED BLOCKS TAB ---\n' + this.exportTableToCsv('blocks', blocks) + '\n';
+    fullExport += '--- SCHEDULED BLOCKS TAB ---\n' + this.exportTableToCsv('blocks', blocks) + '\n\n';
+    fullExport += '--- ACADEMIC EVENTS TAB ---\n' + this.exportTableToCsv('academic_events', events) + '\n\n';
+    fullExport += '--- FOCUS LOGS TAB ---\n' + this.exportTableToCsv('focus_logs', logs) + '\n';
 
     const blob = new Blob([fullExport], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -329,4 +570,3 @@ export const googleSheetsService = {
     document.body.removeChild(link);
   },
 };
-

@@ -2,43 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-:root, html[data-theme="dark"] {
-  --bg: #0A0A16;
-  --bg-glow: radial-gradient(900px 500px at 50% -10%, rgba(124, 92, 255, 0.28), transparent 70%);
-  --surface: #12121F;
-  --surface-2: #1A1A2E;
-  --glass: rgba(255, 255, 255, 0.04);
-  --border: #262640;
-  --border-hi: #3A3A5C;
-  --ink: #F2F2F7;
-  --muted: #A0A0B8;
-  --muted-dim: #6E6E8A;
+:root, html, html[data-theme="light"], html[data-theme="dark"] {
+  --bg: #F5F9FF;
+  --bg-glow: radial-gradient(1100px 600px at 50% -5%, rgba(37, 99, 235, 0.09), rgba(219, 234, 254, 0.4), transparent 75%);
+  --surface: #FFFFFF;
+  --surface-2: #EDF3FA;
+  --surface-dark: #14233B;
+  --glass: rgba(255, 255, 255, 0.9);
+  --border: #DCE6F2;
+  --border-hi: #CBD9E8;
+  --ink: #14233B;
+  --muted: #52647B;
+  --muted-dim: #7C8FA6;
 
-  --primary: #7C5CFF;
-  --primary-hi: #9377FF;
-  --primary-soft: rgba(124, 92, 255, 0.16);
-  --blue: #4EA8FF;
-  --mint: #2DD4A7;
-  --mint-soft: rgba(45, 212, 167, 0.14);
-  --amber: #FFB86B;
-  --rose: #FF6B81;
+  /* Primary Action & Ice-Blue Accent */
+  --primary: #2563EB;
+  --primary-hi: #1D4ED8;
+  --primary-soft: #DBEAFE;
+  --blue: #0284C7;
+  --blue-soft: #E0F2FE;
 
-  --color-sub-1: #7C5CFF;
-  --color-sub-2: #2DD4A7;
-  --color-sub-3: #4EA8FF;
-  --color-sub-4: #FFB86B;
-  --color-sub-5: #FF6B81;
-  --color-sub-6: #F472B6;
+  /* Status Colors */
+  --mint: #166534;
+  --mint-soft: #DCFCE7;
+  --lavender: #5B21B6;
+  --lavender-soft: #EDE9FE;
+  --amber: #92400E;
+  --amber-soft: #FEF3C7;
+  --rose: #991B1B;
+  --rose-soft: #FEE2E2;
 
-  --radius-input: 10px;
-  --radius-card: 18px;
+  /* Subject Colors (Distinguishable, No Pink) */
+  --color-sub-1: #2563EB; /* Cobalt Blue */
+  --color-sub-2: #0D9488; /* Teal */
+  --color-sub-3: #0284C7; /* Sky Blue */
+  --color-sub-4: #D97706; /* Amber */
+  --color-sub-5: #7C3AED; /* Lavender */
+  --color-sub-6: #059669; /* Emerald */
+
+  --radius-input: 12px;
+  --radius-card: 20px;
   --radius-hero: 24px;
   --radius-pill: 9999px;
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
     background-color: var(--bg);
   }
 
@@ -65,29 +75,29 @@
     font-size: 16px !important;
   }
 
-  /* Visible focus ring (2px --primary-hi, 2px offset) */
+  /* Visible focus ring */
   :focus-visible {
-    outline: 2px solid var(--primary-hi);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
 }
 
 /* Gradients */
 .bg-cta-gradient {
-  background: linear-gradient(135deg, #7C5CFF 0%, #4EA8FF 100%);
+  background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
   color: #FFFFFF;
-  box-shadow: 0 8px 24px rgba(124, 92, 255, 0.32);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
 }
 
 .bg-hero-glow {
-  background: radial-gradient(circle at 50% 30%, rgba(124, 92, 255, 0.22) 0%, transparent 60%);
+  background: radial-gradient(circle at 50% 30%, rgba(37, 99, 235, 0.12) 0%, transparent 65%);
 }
 
 .hero-grid-pattern {
   background-size: 32px 32px;
   background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(to right, rgba(20, 35, 59, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 35, 59, 0.04) 1px, transparent 1px);
 }
 
 /* Custom interactive active states */

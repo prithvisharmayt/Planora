@@ -12,40 +12,40 @@ export const subjectColorMap: Record<
   { hex: string; bgSoft: string; border: string; text: string }
 > = {
   '1': {
-    hex: '#7C5CFF', // iris
-    bgSoft: 'rgba(124, 92, 255, 0.16)',
-    border: 'rgba(124, 92, 255, 0.3)',
-    text: '#9377FF',
+    hex: '#2563EB', // Cobalt Blue
+    bgSoft: '#EFF6FF',
+    border: '#BFDBFE',
+    text: '#1D4ED8',
   },
   '2': {
-    hex: '#2DD4A7', // mint
-    bgSoft: 'rgba(45, 212, 167, 0.16)',
-    border: 'rgba(45, 212, 167, 0.3)',
-    text: '#2DD4A7',
+    hex: '#0D9488', // Teal
+    bgSoft: '#F0FDFA',
+    border: '#99F6E4',
+    text: '#0F766E',
   },
   '3': {
-    hex: '#4EA8FF', // blue
-    bgSoft: 'rgba(78, 168, 255, 0.16)',
-    border: 'rgba(78, 168, 255, 0.3)',
-    text: '#4EA8FF',
+    hex: '#0284C7', // Sky Blue
+    bgSoft: '#F0F9FF',
+    border: '#BAE6FD',
+    text: '#0369A1',
   },
   '4': {
-    hex: '#FFB86B', // amber
-    bgSoft: 'rgba(255, 184, 107, 0.16)',
-    border: 'rgba(255, 184, 107, 0.3)',
-    text: '#FFB86B',
+    hex: '#D97706', // Amber
+    bgSoft: '#FFFBEB',
+    border: '#FDE68A',
+    text: '#B45309',
   },
   '5': {
-    hex: '#FF6B81', // rose
-    bgSoft: 'rgba(255, 107, 129, 0.16)',
-    border: 'rgba(255, 107, 129, 0.3)',
-    text: '#FF6B81',
+    hex: '#7C3AED', // Lavender / Violet
+    bgSoft: '#F5F3FF',
+    border: '#DDD6FE',
+    text: '#6D28D9',
   },
   '6': {
-    hex: '#F472B6', // pink
-    bgSoft: 'rgba(244, 114, 182, 0.16)',
-    border: 'rgba(244, 114, 182, 0.3)',
-    text: '#F472B6',
+    hex: '#059669', // Emerald
+    bgSoft: '#ECFDF5',
+    border: '#A7F3D0',
+    text: '#047857',
   },
 };
 

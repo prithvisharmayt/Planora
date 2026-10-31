@@ -232,4 +232,112 @@ describe('Deterministic Scheduler', () => {
     expect(result.deficits[0].subject_name).toBe('Chem');
     expect(result.deficits[0].message).toContain("won't fit before your Chem exam.");
   });
+
+  it('6. locked blocks preserved: existing locked blocks remain in schedule and prevent duplicate scheduling', () => {
+    const subjects: Subject[] = [
+      {
+        id: 'sub-cs',
+        user_id: 'user-1',
+        name: 'Algorithms',
+        color_key: '1',
+        exam_date: '2026-11-10',
+        priority: 2,
+        created_at: '',
+      },
+    ];
+
+    const chapters: Chapter[] = [
+      {
+        id: 'ch-graphs',
+        user_id: 'user-1',
+        subject_id: 'sub-cs',
+        title: 'Graphs',
+        est_min: 90, // two 45m blocks
+        is_done: false,
+        position: 1,
+        created_at: '',
+      },
+    ];
+
+    const existingLockedBlock = {
+      id: 'blk-locked-1',
+      user_id: 'user-1',
+      chapter_id: 'ch-graphs',
+      date: '2026-11-01',
+      start_min: 540,
+      duration_min: 45,
+      status: 'scheduled' as const,
+      is_locked: true,
+      created_at: '',
+    };
+
+    const result = generateSchedule({
+      subjects,
+      chapters,
+      config: {
+        daily_hours: 2,
+        session_min: 45,
+        break_min: 10,
+        start_date: '2026-11-01',
+      },
+      existing_blocks: [existingLockedBlock],
+    });
+
+    // One locked block preserved + only 1 additional 45m block needed (total 90m)
+    const lockedInOutput = result.blocks.find((b) => b.is_locked);
+    expect(lockedInOutput).toBeDefined();
+    expect(lockedInOutput?.date).toBe('2026-11-01');
+
+    const totalScheduledForChapter = result.blocks
+      .filter((b) => b.chapter_id === 'ch-graphs')
+      .reduce((sum, b) => sum + b.duration_min, 0);
+    expect(totalScheduledForChapter).toBe(90);
+  });
+
+  it('7. academic events: holiday dates skip study scheduling', () => {
+    const subjects: Subject[] = [
+      {
+        id: 'sub-1',
+        user_id: 'user-1',
+        name: 'Physics',
+        color_key: '1',
+        exam_date: '2026-11-05',
+        priority: 2,
+        created_at: '',
+      },
+    ];
+
+    const chapters: Chapter[] = [
+      { id: 'ch-1', user_id: 'user-1', subject_id: 'sub-1', title: 'Optics', est_min: 45, is_done: false, position: 1, created_at: '' },
+    ];
+
+    const holidayEvent = {
+      id: 'evt-hol',
+      user_id: 'user-1',
+      subject_id: null,
+      title: 'National Holiday',
+      event_type: 'holiday' as const,
+      start_date: '2026-11-01',
+      created_at: '',
+    };
+
+    const result = generateSchedule({
+      subjects,
+      chapters,
+      config: {
+        daily_hours: 2,
+        session_min: 45,
+        break_min: 10,
+        start_date: '2026-11-01',
+      },
+      academic_events: [holidayEvent],
+    });
+
+    // Nov 1 should have 0 blocks scheduled because of the holiday
+    const day1Blocks = result.blocks.filter((b) => b.date === '2026-11-01');
+    expect(day1Blocks.length).toBe(0);
+
+    // Block was moved to Nov 2
+    expect(result.blocks[0].date).toBe('2026-11-02');
+  });
 });

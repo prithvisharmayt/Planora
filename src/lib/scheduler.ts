@@ -1,4 +1,4 @@
-import type { Subject, Chapter, Block } from '../types/database';
+import type { Subject, Chapter, Block, AcademicEvent } from '../types/database';
 
 export interface SchedulerConfig {
   daily_hours: number;
@@ -27,6 +27,7 @@ export interface ScheduledBlockItem {
   start_min: number;
   duration_min: number;
   status: 'scheduled' | 'done' | 'missed';
+  is_locked?: boolean;
 }
 
 export interface SchedulerOutput {
@@ -120,6 +121,7 @@ export function generateSchedule(params: {
   config: SchedulerConfig;
   existing_blocks?: Block[];
   missed_chapter_ids?: Set<string>;
+  academic_events?: AcademicEvent[];
 }): SchedulerOutput {
   const {
     subjects,
@@ -127,6 +129,7 @@ export function generateSchedule(params: {
     config,
     existing_blocks = [],
     missed_chapter_ids = new Set(),
+    academic_events = [],
   } = params;
 
   const sessionMin = config.session_min || 45;
@@ -138,13 +141,21 @@ export function generateSchedule(params: {
   const subjectMap = new Map<string, Subject>();
   subjects.forEach((s) => subjectMap.set(s.id, s));
 
-  // Calculate already completed minutes per chapter
-  const doneMinutesPerChapter = new Map<string, number>();
-  existing_blocks.forEach((b) => {
-    if (b.status === 'done') {
-      const cur = doneMinutesPerChapter.get(b.chapter_id) || 0;
-      doneMinutesPerChapter.set(b.chapter_id, cur + b.duration_min);
-    }
+  // Separate locked blocks from today onward and done blocks
+  const lockedBlocksFromToday = existing_blocks.filter(
+    (b) => b.is_locked && b.date >= startDate && b.status !== 'done'
+  );
+  const doneBlocks = existing_blocks.filter((b) => b.status === 'done');
+
+  // Track completed or locked minutes per chapter
+  const accountedMinutesPerChapter = new Map<string, number>();
+  doneBlocks.forEach((b) => {
+    const cur = accountedMinutesPerChapter.get(b.chapter_id) || 0;
+    accountedMinutesPerChapter.set(b.chapter_id, cur + b.duration_min);
+  });
+  lockedBlocksFromToday.forEach((b) => {
+    const cur = accountedMinutesPerChapter.get(b.chapter_id) || 0;
+    accountedMinutesPerChapter.set(b.chapter_id, cur + b.duration_min);
   });
 
   // Build the list of needed blocks for each active chapter
@@ -155,8 +166,8 @@ export function generateSchedule(params: {
     const subject = subjectMap.get(chapter.subject_id);
     if (!subject) continue;
 
-    const doneMin = doneMinutesPerChapter.get(chapter.id) || 0;
-    const remainingMin = Math.max(0, chapter.est_min - doneMin);
+    const accountedMin = accountedMinutesPerChapter.get(chapter.id) || 0;
+    const remainingMin = Math.max(0, chapter.est_min - accountedMin);
     if (remainingMin <= 0) continue;
 
     // Split chapter into blocks of session_min
@@ -196,7 +207,37 @@ export function generateSchedule(params: {
   }
   const maxDays = Math.max(30, diffDays(latestExamDate, startDate) + 1);
 
+  // Group locked blocks by date
+  const lockedByDate = new Map<string, Block[]>();
+  lockedBlocksFromToday.forEach((b) => {
+    const arr = lockedByDate.get(b.date) || [];
+    arr.push(b);
+    lockedByDate.set(b.date, arr);
+  });
+
   const scheduledBlocks: ScheduledBlockItem[] = [];
+
+  // Re-include locked blocks in output
+  lockedBlocksFromToday.forEach((b) => {
+    const chapter = chapters.find((c) => c.id === b.chapter_id);
+    const subject = chapter ? subjectMap.get(chapter.subject_id) : undefined;
+    if (chapter && subject) {
+      scheduledBlocks.push({
+        id: b.id,
+        chapter_id: b.chapter_id,
+        subject_id: subject.id,
+        subject_name: subject.name,
+        chapter_title: chapter.title,
+        color_key: subject.color_key,
+        date: b.date,
+        start_min: b.start_min,
+        duration_min: b.duration_min,
+        status: b.status,
+        is_locked: true,
+      });
+    }
+  });
+
   const assignedBlockIndices = new Set<number>();
 
   // Iterate day by day starting from startDate
@@ -206,10 +247,34 @@ export function generateSchedule(params: {
     }
 
     const currentDate = addDays(startDate, dayOffset);
-    let dayStudyMin = 0;
+
+    // Check if whole day is a holiday event
+    const isHoliday = academic_events.some(
+      (ev) => ev.event_type === 'holiday' && ev.start_date <= currentDate && (ev.end_date ? ev.end_date >= currentDate : ev.start_date === currentDate)
+    );
+    if (isHoliday) {
+      continue;
+    }
+
+    // Initialize day state with any locked blocks already on this day
+    const dayLocked = lockedByDate.get(currentDate) || [];
+    let dayStudyMin = dayLocked.reduce((acc, b) => acc + b.duration_min, 0);
     let dayCurrentTime = startTimeMin;
-    const daySubjectHistory: string[] = [];
+
+    if (dayLocked.length > 0) {
+      const maxEndTime = Math.max(...dayLocked.map((b) => b.start_min + b.duration_min));
+      dayCurrentTime = Math.max(dayCurrentTime, maxEndTime + breakMin);
+    }
+
+    const daySubjectHistory: string[] = dayLocked.map((b) => {
+      const ch = chapters.find((c) => c.id === b.chapter_id);
+      return ch ? ch.subject_id : '';
+    }).filter(Boolean);
+
     const dayChapterBlockCount = new Map<string, number>();
+    dayLocked.forEach((b) => {
+      dayChapterBlockCount.set(b.chapter_id, (dayChapterBlockCount.get(b.chapter_id) || 0) + 1);
+    });
 
     while (true) {
       let bestIndex = -1;
@@ -225,6 +290,14 @@ export function generateSchedule(params: {
           if (daysToExam < 1) {
             continue;
           }
+        }
+
+        // Check if subject has an exam event on or before currentDate
+        const hasExamEvent = academic_events.some(
+          (ev) => ev.subject_id === cand.subject_id && ev.event_type === 'exam' && diffDays(ev.start_date, currentDate) < 1
+        );
+        if (hasExamEvent) {
+          continue;
         }
 
         // Constraint: never exceed declared daily hours
@@ -299,6 +372,9 @@ export function generateSchedule(params: {
       dayChapterBlockCount.set(chosen.chapter_id, (dayChapterBlockCount.get(chosen.chapter_id) || 0) + 1);
     }
   }
+
+  // Sort all scheduled blocks by date then start_min
+  scheduledBlocks.sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min);
 
   // Calculate deficits for any pending blocks with exam_date that could not fit before exam
   const deficitsBySubject = new Map<string, number>();

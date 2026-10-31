@@ -11,6 +11,7 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, name: string) => Promise<{ error: Error | null; needsEmailConfirmation?: boolean }>;
+  signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
   refreshProfile: () => Promise<void>;
@@ -180,6 +181,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error: null, needsEmailConfirmation: false };
   };
 
+  const signInWithGoogle = async () => {
+    if (!isSupabaseConfigured()) {
+      const mockUser: User = {
+        id: 'google_user_' + Date.now().toString(36),
+        app_metadata: { provider: 'google' },
+        user_metadata: { name: 'Google Student', full_name: 'Google Student' },
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+        email: 'student@gmail.com',
+      } as any;
+      localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(mockUser));
+      setUser(mockUser);
+      await fetchProfile(mockUser.id);
+      return { error: null };
+    }
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/app`,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
+      },
+    });
+
+    return { error: error as Error | null };
+  };
+
   const signOut = async () => {
     if (isSupabaseConfigured()) {
       await supabase.auth.signOut();
@@ -223,6 +254,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         signIn,
         signUp,
+        signInWithGoogle,
         signOut,
         resetPassword,
         refreshProfile,
